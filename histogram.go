@@ -78,3 +78,8 @@ func durationBounds(bounds []time.Duration) []int64 {
 	}
 	return out
 }
+
+// DurationBounds converts duration buckets into histogram base-unit bounds.
+func DurationBounds(bounds []time.Duration) []int64 {
+	return durationBounds(bounds)
+}

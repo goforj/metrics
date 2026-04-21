@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -27,7 +28,9 @@ func NewRegistry() *Registry {
 
 // Counter registers or returns an existing counter.
 func (r *Registry) Counter(desc Descriptor) (*Counter, error) {
-	if err := validateDescriptor(desc, KindCounter); err != nil {
+	var err error
+	desc, err = canonicalizeDescriptor(desc, KindCounter)
+	if err != nil {
 		return nil, err
 	}
 
@@ -60,7 +63,9 @@ func (r *Registry) MustCounter(desc Descriptor) *Counter {
 
 // Gauge registers or returns an existing gauge.
 func (r *Registry) Gauge(desc Descriptor) (*Gauge, error) {
-	if err := validateDescriptor(desc, KindGauge); err != nil {
+	var err error
+	desc, err = canonicalizeDescriptor(desc, KindGauge)
+	if err != nil {
 		return nil, err
 	}
 
@@ -93,7 +98,9 @@ func (r *Registry) MustGauge(desc Descriptor) *Gauge {
 
 // Histogram registers or returns an existing histogram.
 func (r *Registry) Histogram(desc Descriptor, bounds []int64) (*Histogram, error) {
-	if err := validateDescriptor(desc, KindHistogram); err != nil {
+	var err error
+	desc, err = canonicalizeDescriptor(desc, KindHistogram)
+	if err != nil {
 		return nil, err
 	}
 	if err := validateBounds(bounds); err != nil {
@@ -189,17 +196,17 @@ func (r *Registry) Snapshot() *Snapshot {
 	return snap
 }
 
-func validateDescriptor(desc Descriptor, kind Kind) error {
+func canonicalizeDescriptor(desc Descriptor, kind Kind) (Descriptor, error) {
 	if desc.Name == "" {
-		return errors.New("metrics: descriptor name is required")
+		return Descriptor{}, errors.New("metrics: descriptor name is required")
 	}
 	if desc.Kind == "" {
 		desc.Kind = kind
 	}
 	if desc.Kind != kind {
-		return fmt.Errorf("metrics: descriptor kind mismatch for %q", desc.Name)
+		return Descriptor{}, fmt.Errorf("metrics: descriptor kind mismatch for %q", desc.Name)
 	}
-	return nil
+	return desc, nil
 }
 
 func sameDescriptor(a, b Descriptor) bool {

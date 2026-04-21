@@ -1,6 +1,9 @@
 package metrics
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestHistogramObserveBuckets(t *testing.T) {
 	reg := NewRegistry()
@@ -47,4 +50,38 @@ func TestHistogramRejectsUnsortedBounds(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected validation error")
 	}
+}
+
+func TestHistogramObserveSince(t *testing.T) {
+	reg := NewRegistry()
+	hist := reg.MustHistogram(Descriptor{
+		Name: "request.duration",
+		Help: "Request duration.",
+		Kind: KindHistogram,
+		Unit: UnitSeconds,
+	}, DurationBounds([]time.Duration{time.Millisecond, 2 * time.Millisecond}))
+
+	hist.ObserveSince(time.Now().Add(-1500 * time.Microsecond))
+
+	snap := reg.Snapshot()
+	if got := snap.Histograms[0].Count; got != 1 {
+		t.Fatalf("count: got %d want 1", got)
+	}
+	if got := snap.Histograms[0].BucketCounts[1]; got != 1 {
+		t.Fatalf("bucket[1]: got %d want 1", got)
+	}
+}
+
+func TestDefaultDurationBoundsReturnsCopy(t *testing.T) {
+	first := DefaultDurationBounds()
+	second := DefaultDurationBounds()
+	first[0] = time.Hour
+	if second[0] == time.Hour {
+		t.Fatalf("expected bounds copy")
+	}
+}
+
+func TestObserveSinceOnNilHistogramIsNoOp(t *testing.T) {
+	var hist *Histogram
+	hist.ObserveSince(time.Now())
 }
