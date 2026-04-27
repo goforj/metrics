@@ -126,8 +126,8 @@ func TestHandlerSetsPrometheusContentType(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d want %d", rec.Code, http.StatusOK)
 	}
-	if got := rec.Header().Get("Content-Type"); got != prometheusContentType {
-		t.Fatalf("content-type: got %q want %q", got, prometheusContentType)
+	if got := rec.Header().Get("Content-Type"); got != PrometheusContentType {
+		t.Fatalf("content-type: got %q want %q", got, PrometheusContentType)
 	}
 	if !strings.Contains(rec.Body.String(), "http_requests_total 1") {
 		t.Fatalf("missing body content:\n%s", rec.Body.String())

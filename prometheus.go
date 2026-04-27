@@ -8,7 +8,8 @@ import (
 	"strings"
 )
 
-const prometheusContentType = `text/plain; version=0.0.4; charset=utf-8`
+// PrometheusContentType is the standard Prometheus text exposition content type.
+const PrometheusContentType = `text/plain; version=0.0.4; charset=utf-8`
 
 // Handler exposes a Prometheus-compatible scrape endpoint for a registry.
 func Handler(reg *Registry) http.Handler {
@@ -16,7 +17,7 @@ func Handler(reg *Registry) http.Handler {
 		reg = NewRegistry()
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", prometheusContentType)
+		w.Header().Set("Content-Type", PrometheusContentType)
 		if err := EncodePrometheus(w, reg.Snapshot()); err != nil {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -30,57 +31,69 @@ func EncodePrometheus(w io.Writer, snap *Snapshot) error {
 		return nil
 	}
 
+	lastCounterName := ""
 	for _, metric := range snap.Counters {
 		name := prometheusMetricName(metric.Descriptor)
-		if _, err := fmt.Fprintf(w, "# HELP %s %s\n", name, escapeHelp(metric.Descriptor.Help)); err != nil {
-			return err
+		if name != lastCounterName {
+			if _, err := fmt.Fprintf(w, "# HELP %s %s\n", name, escapeHelp(metric.Descriptor.Help)); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(w, "# TYPE %s counter\n", name); err != nil {
+				return err
+			}
+			lastCounterName = name
 		}
-		if _, err := fmt.Fprintf(w, "# TYPE %s counter\n", name); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(w, "%s %d\n", name, metric.Value); err != nil {
+		if _, err := fmt.Fprintf(w, "%s%s %d\n", name, formatLabels(metric.Labels), metric.Value); err != nil {
 			return err
 		}
 	}
 
+	lastGaugeName := ""
 	for _, metric := range snap.Gauges {
 		name := prometheusMetricName(metric.Descriptor)
-		if _, err := fmt.Fprintf(w, "# HELP %s %s\n", name, escapeHelp(metric.Descriptor.Help)); err != nil {
-			return err
+		if name != lastGaugeName {
+			if _, err := fmt.Fprintf(w, "# HELP %s %s\n", name, escapeHelp(metric.Descriptor.Help)); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(w, "# TYPE %s gauge\n", name); err != nil {
+				return err
+			}
+			lastGaugeName = name
 		}
-		if _, err := fmt.Fprintf(w, "# TYPE %s gauge\n", name); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(w, "%s %d\n", name, metric.Value); err != nil {
+		if _, err := fmt.Fprintf(w, "%s%s %d\n", name, formatLabels(metric.Labels), metric.Value); err != nil {
 			return err
 		}
 	}
 
+	lastHistogramName := ""
 	for _, metric := range snap.Histograms {
 		name := prometheusMetricName(metric.Descriptor)
-		if _, err := fmt.Fprintf(w, "# HELP %s %s\n", name, escapeHelp(metric.Descriptor.Help)); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(w, "# TYPE %s histogram\n", name); err != nil {
-			return err
+		if name != lastHistogramName {
+			if _, err := fmt.Fprintf(w, "# HELP %s %s\n", name, escapeHelp(metric.Descriptor.Help)); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(w, "# TYPE %s histogram\n", name); err != nil {
+				return err
+			}
+			lastHistogramName = name
 		}
 		var cumulative uint64
 		for i, count := range metric.BucketCounts {
 			cumulative += count
 			if i < len(metric.Bounds) {
-				if _, err := fmt.Fprintf(w, "%s_bucket{le=%q} %d\n", name, formatBound(metric.Bounds[i], metric.Descriptor.Unit), cumulative); err != nil {
+				if _, err := fmt.Fprintf(w, "%s_bucket%s %d\n", name, formatLabelsWithExtra(metric.Labels, Label{Key: "le", Value: formatBound(metric.Bounds[i], metric.Descriptor.Unit)}), cumulative); err != nil {
 					return err
 				}
 				continue
 			}
-			if _, err := fmt.Fprintf(w, "%s_bucket{le=%q} %d\n", name, "+Inf", cumulative); err != nil {
+			if _, err := fmt.Fprintf(w, "%s_bucket%s %d\n", name, formatLabelsWithExtra(metric.Labels, Label{Key: "le", Value: "+Inf"}), cumulative); err != nil {
 				return err
 			}
 		}
-		if _, err := fmt.Fprintf(w, "%s_sum %s\n", name, formatSum(metric.Sum, metric.Descriptor.Unit)); err != nil {
+		if _, err := fmt.Fprintf(w, "%s_sum%s %s\n", name, formatLabels(metric.Labels), formatSum(metric.Sum, metric.Descriptor.Unit)); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(w, "%s_count %d\n", name, metric.Count); err != nil {
+		if _, err := fmt.Fprintf(w, "%s_count%s %d\n", name, formatLabels(metric.Labels), metric.Count); err != nil {
 			return err
 		}
 	}
@@ -133,6 +146,38 @@ func escapeHelp(help string) string {
 	help = strings.ReplaceAll(help, `\`, `\\`)
 	help = strings.ReplaceAll(help, "\n", `\n`)
 	return help
+}
+
+func formatLabels(labels []Label) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteByte('{')
+	for i, label := range labels {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(label.Key)
+		b.WriteByte('=')
+		b.WriteString(strconv.Quote(escapeLabelValue(label.Value)))
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+func formatLabelsWithExtra(labels []Label, extra Label) string {
+	out := make([]Label, 0, len(labels)+1)
+	out = append(out, labels...)
+	out = append(out, extra)
+	return formatLabels(out)
+}
+
+func escapeLabelValue(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, "\n", `\n`)
+	value = strings.ReplaceAll(value, `"`, `\"`)
+	return value
 }
 
 func formatBound(v int64, unit Unit) string {

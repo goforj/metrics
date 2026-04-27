@@ -4,8 +4,9 @@ import "sync/atomic"
 
 // Counter is a monotonic increasing metric.
 type Counter struct {
-	desc  Descriptor
-	value atomic.Uint64
+	desc   Descriptor
+	labels []Label
+	value  atomic.Uint64
 }
 
 // Descriptor returns the metric descriptor.

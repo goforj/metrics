@@ -10,18 +10,21 @@ type Snapshot struct {
 // CounterSnapshot captures one counter value.
 type CounterSnapshot struct {
 	Descriptor Descriptor
+	Labels     []Label
 	Value      uint64
 }
 
 // GaugeSnapshot captures one gauge value.
 type GaugeSnapshot struct {
 	Descriptor Descriptor
+	Labels     []Label
 	Value      int64
 }
 
 // HistogramSnapshot captures one histogram state.
 type HistogramSnapshot struct {
 	Descriptor   Descriptor
+	Labels       []Label
 	Bounds       []int64
 	BucketCounts []uint64
 	Count        uint64

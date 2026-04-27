@@ -11,18 +11,24 @@ import (
 
 // Registry owns metric registration and snapshot collection.
 type Registry struct {
-	mu         sync.RWMutex
-	counters   map[string]*Counter
-	gauges     map[string]*Gauge
-	histograms map[string]*Histogram
+	mu            sync.RWMutex
+	counters      map[string]*Counter
+	counterVecs   map[string]*CounterVec
+	gauges        map[string]*Gauge
+	gaugeVecs     map[string]*GaugeVec
+	histograms    map[string]*Histogram
+	histogramVecs map[string]*HistogramVec
 }
 
 // NewRegistry creates an empty metric registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		counters:   map[string]*Counter{},
-		gauges:     map[string]*Gauge{},
-		histograms: map[string]*Histogram{},
+		counters:      map[string]*Counter{},
+		counterVecs:   map[string]*CounterVec{},
+		gauges:        map[string]*Gauge{},
+		gaugeVecs:     map[string]*GaugeVec{},
+		histograms:    map[string]*Histogram{},
+		histogramVecs: map[string]*HistogramVec{},
 	}
 }
 
@@ -43,7 +49,7 @@ func (r *Registry) Counter(desc Descriptor) (*Counter, error) {
 		}
 		return nil, conflictingMetricError(desc.Name)
 	}
-	if r.gauges[desc.Name] != nil || r.histograms[desc.Name] != nil {
+	if r.gauges[desc.Name] != nil || r.histograms[desc.Name] != nil || r.counterVecs[desc.Name] != nil || r.histogramVecs[desc.Name] != nil {
 		return nil, conflictingMetricError(desc.Name)
 	}
 
@@ -78,7 +84,7 @@ func (r *Registry) Gauge(desc Descriptor) (*Gauge, error) {
 		}
 		return nil, conflictingMetricError(desc.Name)
 	}
-	if r.counters[desc.Name] != nil || r.histograms[desc.Name] != nil {
+	if r.counters[desc.Name] != nil || r.histograms[desc.Name] != nil || r.counterVecs[desc.Name] != nil || r.gaugeVecs[desc.Name] != nil || r.histogramVecs[desc.Name] != nil {
 		return nil, conflictingMetricError(desc.Name)
 	}
 
@@ -116,7 +122,7 @@ func (r *Registry) Histogram(desc Descriptor, bounds []int64) (*Histogram, error
 		}
 		return nil, conflictingMetricError(desc.Name)
 	}
-	if r.counters[desc.Name] != nil || r.gauges[desc.Name] != nil {
+	if r.counters[desc.Name] != nil || r.gauges[desc.Name] != nil || r.counterVecs[desc.Name] != nil || r.gaugeVecs[desc.Name] != nil || r.histogramVecs[desc.Name] != nil {
 		return nil, conflictingMetricError(desc.Name)
 	}
 
@@ -159,14 +165,38 @@ func (r *Registry) Snapshot() *Snapshot {
 	for _, metric := range r.counters {
 		snap.Counters = append(snap.Counters, CounterSnapshot{
 			Descriptor: metric.desc,
+			Labels:     append([]Label(nil), metric.labels...),
 			Value:      metric.Value(),
 		})
+	}
+	for _, family := range r.counterVecs {
+		family.mu.RLock()
+		for _, metric := range family.metrics {
+			snap.Counters = append(snap.Counters, CounterSnapshot{
+				Descriptor: metric.desc,
+				Labels:     append([]Label(nil), metric.labels...),
+				Value:      metric.Value(),
+			})
+		}
+		family.mu.RUnlock()
 	}
 	for _, metric := range r.gauges {
 		snap.Gauges = append(snap.Gauges, GaugeSnapshot{
 			Descriptor: metric.desc,
+			Labels:     append([]Label(nil), metric.labels...),
 			Value:      metric.Value(),
 		})
+	}
+	for _, family := range r.gaugeVecs {
+		family.mu.RLock()
+		for _, metric := range family.metrics {
+			snap.Gauges = append(snap.Gauges, GaugeSnapshot{
+				Descriptor: metric.desc,
+				Labels:     append([]Label(nil), metric.labels...),
+				Value:      metric.Value(),
+			})
+		}
+		family.mu.RUnlock()
 	}
 	for _, metric := range r.histograms {
 		bounds := append([]int64(nil), metric.bounds...)
@@ -176,21 +206,50 @@ func (r *Registry) Snapshot() *Snapshot {
 		}
 		snap.Histograms = append(snap.Histograms, HistogramSnapshot{
 			Descriptor:   metric.desc,
+			Labels:       append([]Label(nil), metric.labels...),
 			Bounds:       bounds,
 			BucketCounts: buckets,
 			Count:        metric.Count(),
 			Sum:          metric.Sum(),
 		})
 	}
+	for _, family := range r.histogramVecs {
+		family.mu.RLock()
+		for _, metric := range family.metrics {
+			bounds := append([]int64(nil), metric.bounds...)
+			buckets := make([]uint64, len(metric.buckets))
+			for i := range metric.buckets {
+				buckets[i] = metric.buckets[i].Load()
+			}
+			snap.Histograms = append(snap.Histograms, HistogramSnapshot{
+				Descriptor:   metric.desc,
+				Labels:       append([]Label(nil), metric.labels...),
+				Bounds:       bounds,
+				BucketCounts: buckets,
+				Count:        metric.Count(),
+				Sum:          metric.Sum(),
+			})
+		}
+		family.mu.RUnlock()
+	}
 
 	sort.Slice(snap.Counters, func(i, j int) bool {
-		return snap.Counters[i].Descriptor.Name < snap.Counters[j].Descriptor.Name
+		if snap.Counters[i].Descriptor.Name != snap.Counters[j].Descriptor.Name {
+			return snap.Counters[i].Descriptor.Name < snap.Counters[j].Descriptor.Name
+		}
+		return compareLabels(snap.Counters[i].Labels, snap.Counters[j].Labels) < 0
 	})
 	sort.Slice(snap.Gauges, func(i, j int) bool {
-		return snap.Gauges[i].Descriptor.Name < snap.Gauges[j].Descriptor.Name
+		if snap.Gauges[i].Descriptor.Name != snap.Gauges[j].Descriptor.Name {
+			return snap.Gauges[i].Descriptor.Name < snap.Gauges[j].Descriptor.Name
+		}
+		return compareLabels(snap.Gauges[i].Labels, snap.Gauges[j].Labels) < 0
 	})
 	sort.Slice(snap.Histograms, func(i, j int) bool {
-		return snap.Histograms[i].Descriptor.Name < snap.Histograms[j].Descriptor.Name
+		if snap.Histograms[i].Descriptor.Name != snap.Histograms[j].Descriptor.Name {
+			return snap.Histograms[i].Descriptor.Name < snap.Histograms[j].Descriptor.Name
+		}
+		return compareLabels(snap.Histograms[i].Labels, snap.Histograms[j].Labels) < 0
 	})
 
 	return snap

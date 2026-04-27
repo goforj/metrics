@@ -4,8 +4,9 @@ import "sync/atomic"
 
 // Gauge is a signed point-in-time metric.
 type Gauge struct {
-	desc  Descriptor
-	value atomic.Int64
+	desc   Descriptor
+	labels []Label
+	value  atomic.Int64
 }
 
 // Descriptor returns the metric descriptor.

@@ -9,6 +9,7 @@ import (
 // Histogram records fixed-bucket observations.
 type Histogram struct {
 	desc    Descriptor
+	labels  []Label
 	bounds  []int64
 	buckets []atomic.Uint64
 	count   atomic.Uint64
