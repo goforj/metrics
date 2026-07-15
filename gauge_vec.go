@@ -31,8 +31,8 @@ func (r *Registry) GaugeVec(desc Descriptor, labelKeys []string) (*GaugeVec, err
 		}
 		return nil, conflictingMetricError(desc.Name)
 	}
-	if r.counters[desc.Name] != nil || r.counterVecs[desc.Name] != nil || r.gauges[desc.Name] != nil || r.histograms[desc.Name] != nil || r.histogramVecs[desc.Name] != nil {
-		return nil, conflictingMetricError(desc.Name)
+	if err := r.reserveRegistration(desc); err != nil {
+		return nil, err
 	}
 
 	metric := &GaugeVec{
@@ -55,9 +55,6 @@ func (r *Registry) MustGaugeVec(desc Descriptor, labelKeys []string) *GaugeVec {
 
 // WithLabelValues returns the child gauge for one fixed label value set.
 func (v *GaugeVec) WithLabelValues(values ...string) *Gauge {
-	if v == nil {
-		return nil
-	}
 	if len(values) != len(v.labelKeys) {
 		panic("metrics: label value count mismatch")
 	}
@@ -69,13 +66,20 @@ func (v *GaugeVec) WithLabelValues(values ...string) *Gauge {
 	if metric != nil {
 		return metric
 	}
+	if err := validateLabelValues(values); err != nil {
+		panic(err)
+	}
+	return v.loadOrCreate(key, values)
+}
 
+// loadOrCreate serializes the first child creation and lets concurrent losers reuse its result.
+func (v *GaugeVec) loadOrCreate(key string, values []string) *Gauge {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if metric = v.metrics[key]; metric != nil {
+	if metric := v.metrics[key]; metric != nil {
 		return metric
 	}
-	metric = &Gauge{
+	metric := &Gauge{
 		desc:   v.desc,
 		labels: makeLabels(v.labelKeys, values),
 	}

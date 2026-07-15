@@ -2,6 +2,7 @@ package metrics
 
 import "time"
 
+// defaultDurationBounds spans common in-process and network request latencies.
 var defaultDurationBounds = []time.Duration{
 	5 * time.Millisecond,
 	10 * time.Millisecond,

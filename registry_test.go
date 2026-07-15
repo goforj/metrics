@@ -2,6 +2,7 @@ package metrics
 
 import "testing"
 
+// TestRegistryCounterRegistrationIsIdempotent verifies exact startup repeats reuse the counter handle.
 func TestRegistryCounterRegistrationIsIdempotent(t *testing.T) {
 	reg := NewRegistry()
 	desc := Descriptor{
@@ -23,6 +24,7 @@ func TestRegistryCounterRegistrationIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestRegistryRejectsConflictingRegistration verifies one internal name cannot change metric kind.
 func TestRegistryRejectsConflictingRegistration(t *testing.T) {
 	reg := NewRegistry()
 
@@ -45,6 +47,7 @@ func TestRegistryRejectsConflictingRegistration(t *testing.T) {
 	}
 }
 
+// TestRegistryRejectsConflictingHistogramBounds verifies bucket layouts are part of histogram identity.
 func TestRegistryRejectsConflictingHistogramBounds(t *testing.T) {
 	reg := NewRegistry()
 	desc := Descriptor{
@@ -64,6 +67,7 @@ func TestRegistryRejectsConflictingHistogramBounds(t *testing.T) {
 	}
 }
 
+// TestRegistryGaugeRegistrationIsIdempotent verifies exact startup repeats reuse the gauge handle.
 func TestRegistryGaugeRegistrationIsIdempotent(t *testing.T) {
 	reg := NewRegistry()
 	desc := Descriptor{Name: "jobs.inflight", Help: "In-flight jobs.", Kind: KindGauge}
@@ -80,6 +84,7 @@ func TestRegistryGaugeRegistrationIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestRegistryRejectsConflictingCounterDescriptor verifies help text is stable family metadata.
 func TestRegistryRejectsConflictingCounterDescriptor(t *testing.T) {
 	reg := NewRegistry()
 	if _, err := reg.Counter(Descriptor{Name: "http.requests", Help: "one", Kind: KindCounter}); err != nil {
@@ -90,6 +95,7 @@ func TestRegistryRejectsConflictingCounterDescriptor(t *testing.T) {
 	}
 }
 
+// TestRegistryRejectsHistogramWhenNameUsedByGauge verifies scalar kinds share the raw-name namespace.
 func TestRegistryRejectsHistogramWhenNameUsedByGauge(t *testing.T) {
 	reg := NewRegistry()
 	if _, err := reg.Gauge(Descriptor{Name: "queue.depth", Help: "Queue depth.", Kind: KindGauge}); err != nil {
@@ -100,6 +106,7 @@ func TestRegistryRejectsHistogramWhenNameUsedByGauge(t *testing.T) {
 	}
 }
 
+// TestRegistrySnapshotIsSorted verifies deterministic family ordering across metric kinds.
 func TestRegistrySnapshotIsSorted(t *testing.T) {
 	reg := NewRegistry()
 	reg.MustGauge(Descriptor{Name: "zeta", Help: "zeta", Kind: KindGauge})
@@ -118,6 +125,7 @@ func TestRegistrySnapshotIsSorted(t *testing.T) {
 	}
 }
 
+// TestRegistryRejectsMissingName verifies descriptors cannot create anonymous families.
 func TestRegistryRejectsMissingName(t *testing.T) {
 	reg := NewRegistry()
 	if _, err := reg.Counter(Descriptor{Kind: KindCounter}); err == nil {
@@ -125,6 +133,7 @@ func TestRegistryRejectsMissingName(t *testing.T) {
 	}
 }
 
+// TestRegistryRejectsKindMismatch verifies explicit kinds must agree with registration methods.
 func TestRegistryRejectsKindMismatch(t *testing.T) {
 	reg := NewRegistry()
 	if _, err := reg.Counter(Descriptor{Name: "x", Kind: KindGauge}); err == nil {
@@ -132,6 +141,7 @@ func TestRegistryRejectsKindMismatch(t *testing.T) {
 	}
 }
 
+// TestRegistryDefaultsDescriptorKind verifies registration methods own omitted kind metadata.
 func TestRegistryDefaultsDescriptorKind(t *testing.T) {
 	reg := NewRegistry()
 	counter, err := reg.Counter(Descriptor{Name: "http.requests", Help: "HTTP requests."})
@@ -143,6 +153,7 @@ func TestRegistryDefaultsDescriptorKind(t *testing.T) {
 	}
 }
 
+// TestMustHelpersPanicOnInvalidDescriptor verifies scalar Must helpers fail during startup registration.
 func TestMustHelpersPanicOnInvalidDescriptor(t *testing.T) {
 	reg := NewRegistry()
 
@@ -157,6 +168,7 @@ func TestMustHelpersPanicOnInvalidDescriptor(t *testing.T) {
 	})
 }
 
+// assertPanics keeps fail-fast contract assertions concise across metric types.
 func assertPanics(t *testing.T, fn func()) {
 	t.Helper()
 	defer func() {

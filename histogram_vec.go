@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -26,6 +25,9 @@ func (r *Registry) HistogramVec(desc Descriptor, labelKeys []string, bounds []in
 	if err != nil {
 		return nil, err
 	}
+	if err := validateHistogramLabelKeys(labelKeys); err != nil {
+		return nil, err
+	}
 	if err := validateBounds(bounds); err != nil {
 		return nil, err
 	}
@@ -39,8 +41,8 @@ func (r *Registry) HistogramVec(desc Descriptor, labelKeys []string, bounds []in
 		}
 		return nil, conflictingMetricError(desc.Name)
 	}
-	if r.counters[desc.Name] != nil || r.counterVecs[desc.Name] != nil || r.gauges[desc.Name] != nil || r.gaugeVecs[desc.Name] != nil || r.histograms[desc.Name] != nil {
-		return nil, conflictingMetricError(desc.Name)
+	if err := r.reserveRegistration(desc); err != nil {
+		return nil, err
 	}
 
 	metric := &HistogramVec{
@@ -55,8 +57,21 @@ func (r *Registry) HistogramVec(desc Descriptor, labelKeys []string, bounds []in
 
 // DurationHistogramVec registers or returns an existing labeled duration histogram family.
 func (r *Registry) DurationHistogramVec(desc Descriptor, labelKeys []string, bounds []time.Duration) (*HistogramVec, error) {
-	desc.Unit = UnitSeconds
+	var err error
+	desc, err = durationDescriptor(desc)
+	if err != nil {
+		return nil, err
+	}
 	return r.HistogramVec(desc, labelKeys, durationBounds(bounds))
+}
+
+// MustDurationHistogramVec registers a labeled duration histogram family or panics.
+func (r *Registry) MustDurationHistogramVec(desc Descriptor, labelKeys []string, bounds []time.Duration) *HistogramVec {
+	metric, err := r.DurationHistogramVec(desc, labelKeys, bounds)
+	if err != nil {
+		panic(err)
+	}
+	return metric
 }
 
 // MustHistogramVec registers a labeled histogram family or panics.
@@ -70,9 +85,6 @@ func (r *Registry) MustHistogramVec(desc Descriptor, labelKeys []string, bounds 
 
 // WithLabelValues returns the child histogram for one fixed label value set.
 func (v *HistogramVec) WithLabelValues(values ...string) *Histogram {
-	if v == nil {
-		return nil
-	}
 	if len(values) != len(v.labelKeys) {
 		panic("metrics: label value count mismatch")
 	}
@@ -84,18 +96,20 @@ func (v *HistogramVec) WithLabelValues(values ...string) *Histogram {
 	if metric != nil {
 		return metric
 	}
+	if err := validateLabelValues(values); err != nil {
+		panic(err)
+	}
+	return v.loadOrCreate(key, values)
+}
 
+// loadOrCreate serializes the first child creation and lets concurrent losers reuse its result.
+func (v *HistogramVec) loadOrCreate(key string, values []string) *Histogram {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if metric = v.metrics[key]; metric != nil {
+	if metric := v.metrics[key]; metric != nil {
 		return metric
 	}
-	metric = &Histogram{
-		desc:    v.desc,
-		labels:  makeLabels(v.labelKeys, values),
-		bounds:  append([]int64(nil), v.bounds...),
-		buckets: make([]atomic.Uint64, len(v.bounds)+1),
-	}
+	metric := newHistogram(v.desc, makeLabels(v.labelKeys, values), v.bounds)
 	v.metrics[key] = metric
 	return metric
 }

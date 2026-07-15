@@ -10,6 +10,7 @@ import (
 	"time"
 )
 
+// TestEncodePrometheusCounterAndGauge verifies scalar metadata and values use their conventional suffixes.
 func TestEncodePrometheusCounterAndGauge(t *testing.T) {
 	reg := NewRegistry()
 	counter := reg.MustCounter(Descriptor{
@@ -46,6 +47,7 @@ func TestEncodePrometheusCounterAndGauge(t *testing.T) {
 	}
 }
 
+// TestEncodePrometheusDurationHistogram verifies nanosecond storage scales to cumulative seconds buckets.
 func TestEncodePrometheusDurationHistogram(t *testing.T) {
 	reg := NewRegistry()
 	hist, err := reg.DurationHistogram(Descriptor{
@@ -87,6 +89,7 @@ func TestEncodePrometheusDurationHistogram(t *testing.T) {
 	}
 }
 
+// TestEncodePrometheusEscapesHelpAndNormalizesNames verifies friendly names and multiline help remain valid text exposition.
 func TestEncodePrometheusEscapesHelpAndNormalizesNames(t *testing.T) {
 	reg := NewRegistry()
 	counter := reg.MustCounter(Descriptor{
@@ -110,6 +113,7 @@ func TestEncodePrometheusEscapesHelpAndNormalizesNames(t *testing.T) {
 	}
 }
 
+// TestHandlerSetsPrometheusContentType verifies HTTP scrapes use the negotiated legacy text media type.
 func TestHandlerSetsPrometheusContentType(t *testing.T) {
 	reg := NewRegistry()
 	reg.MustCounter(Descriptor{
@@ -134,30 +138,22 @@ func TestHandlerSetsPrometheusContentType(t *testing.T) {
 	}
 }
 
-func TestHandlerWithNilRegistryStillServes(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	rec := httptest.NewRecorder()
-
-	Handler(nil).ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want %d", rec.Code, http.StatusOK)
-	}
-	if body := rec.Body.String(); body != "" {
-		t.Fatalf("expected empty body, got %q", body)
-	}
+// TestHandlerWithNilRegistryPanics verifies invalid registry wiring fails during handler construction.
+func TestHandlerWithNilRegistryPanics(t *testing.T) {
+	assertPanics(t, func() {
+		Handler(nil)
+	})
 }
 
+// TestEncodePrometheusNilSnapshot verifies callers distinguish missing state from an explicit empty snapshot.
 func TestEncodePrometheusNilSnapshot(t *testing.T) {
 	var out bytes.Buffer
-	if err := EncodePrometheus(&out, nil); err != nil {
-		t.Fatalf("encode failed: %v", err)
-	}
-	if out.Len() != 0 {
-		t.Fatalf("expected empty output")
+	if err := EncodePrometheus(&out, nil); err == nil {
+		t.Fatalf("expected missing snapshot error")
 	}
 }
 
+// TestEncodePrometheusBytesHistogram verifies raw integer histogram units are suffixed without scaling.
 func TestEncodePrometheusBytesHistogram(t *testing.T) {
 	reg := NewRegistry()
 	hist := reg.MustHistogram(Descriptor{
@@ -183,6 +179,7 @@ func TestEncodePrometheusBytesHistogram(t *testing.T) {
 	}
 }
 
+// TestEncodePrometheusWriterError verifies exposition propagates downstream I/O failures.
 func TestEncodePrometheusWriterError(t *testing.T) {
 	reg := NewRegistry()
 	reg.MustCounter(Descriptor{
@@ -197,6 +194,7 @@ func TestEncodePrometheusWriterError(t *testing.T) {
 	}
 }
 
+// TestNormalizePrometheusNameEdgeCases verifies normalized metric names never begin with a digit.
 func TestNormalizePrometheusNameEdgeCases(t *testing.T) {
 	reg := NewRegistry()
 	reg.MustGauge(Descriptor{
@@ -214,6 +212,7 @@ func TestNormalizePrometheusNameEdgeCases(t *testing.T) {
 	}
 }
 
+// TestEncodePrometheusAppendsCounterSuffixWhenKindDefaulted verifies inferred metadata reaches exposition.
 func TestEncodePrometheusAppendsCounterSuffixWhenKindDefaulted(t *testing.T) {
 	reg := NewRegistry()
 	counter, err := reg.Counter(Descriptor{
@@ -236,6 +235,7 @@ func TestEncodePrometheusAppendsCounterSuffixWhenKindDefaulted(t *testing.T) {
 
 type failingWriter struct{}
 
+// Write always fails so encoder error propagation can be exercised.
 func (failingWriter) Write([]byte) (int, error) {
 	return 0, errors.New("write failed")
 }

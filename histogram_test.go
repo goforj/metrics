@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// TestHistogramObserveBuckets verifies inclusive bounds and the exclusive snapshot representation.
 func TestHistogramObserveBuckets(t *testing.T) {
 	reg := NewRegistry()
 	hist, err := reg.Histogram(Descriptor{
@@ -36,10 +37,11 @@ func TestHistogramObserveBuckets(t *testing.T) {
 		t.Fatalf("count: got %d want 3", got.Count)
 	}
 	if got.Sum != 45 {
-		t.Fatalf("sum: got %d want 45", got.Sum)
+		t.Fatalf("sum: got %v want 45", got.Sum)
 	}
 }
 
+// TestHistogramRejectsUnsortedBounds verifies cumulative exposition cannot be built from descending bounds.
 func TestHistogramRejectsUnsortedBounds(t *testing.T) {
 	reg := NewRegistry()
 	_, err := reg.Histogram(Descriptor{
@@ -52,6 +54,7 @@ func TestHistogramRejectsUnsortedBounds(t *testing.T) {
 	}
 }
 
+// TestHistogramObserveSince verifies elapsed durations use the seconds histogram storage path.
 func TestHistogramObserveSince(t *testing.T) {
 	reg := NewRegistry()
 	hist := reg.MustHistogram(Descriptor{
@@ -72,6 +75,7 @@ func TestHistogramObserveSince(t *testing.T) {
 	}
 }
 
+// TestDefaultDurationBoundsReturnsCopy verifies callers cannot mutate package defaults.
 func TestDefaultDurationBoundsReturnsCopy(t *testing.T) {
 	first := DefaultDurationBounds()
 	second := DefaultDurationBounds()
@@ -81,7 +85,25 @@ func TestDefaultDurationBoundsReturnsCopy(t *testing.T) {
 	}
 }
 
-func TestObserveSinceOnNilHistogramIsNoOp(t *testing.T) {
+// TestHistogramFloatSumTradesUnitPrecisionForRange documents the Prometheus-aligned sum contract.
+func TestHistogramFloatSumTradesUnitPrecisionForRange(t *testing.T) {
+	histogram := NewRegistry().MustHistogram(Descriptor{Name: "large.values", Help: "Large values."}, nil)
+	histogram.Observe(1 << 53)
+	histogram.Observe(1)
+	if got := histogram.Sum(); got != float64(1<<53) {
+		t.Fatalf("rounded sum: got %v want %v", got, float64(1<<53))
+	}
+	histogram.Observe(1 << 62)
+	histogram.Observe(1 << 62)
+	if got := histogram.Sum(); got <= 0 {
+		t.Fatalf("large sum wrapped negative: %v", got)
+	}
+}
+
+// TestObserveSinceOnNilHistogramPanics verifies a missing required metric handle does not disable instrumentation silently.
+func TestObserveSinceOnNilHistogramPanics(t *testing.T) {
 	var hist *Histogram
-	hist.ObserveSince(time.Now())
+	assertPanics(t, func() {
+		hist.ObserveSince(time.Now())
+	})
 }
