@@ -31,8 +31,8 @@ func (r *Registry) CounterVec(desc Descriptor, labelKeys []string) (*CounterVec,
 		}
 		return nil, conflictingMetricError(desc.Name)
 	}
-	if r.counters[desc.Name] != nil || r.gauges[desc.Name] != nil || r.gaugeVecs[desc.Name] != nil || r.histograms[desc.Name] != nil || r.histogramVecs[desc.Name] != nil {
-		return nil, conflictingMetricError(desc.Name)
+	if err := r.reserveRegistration(desc); err != nil {
+		return nil, err
 	}
 
 	metric := &CounterVec{
@@ -55,9 +55,6 @@ func (r *Registry) MustCounterVec(desc Descriptor, labelKeys []string) *CounterV
 
 // WithLabelValues returns the child counter for one fixed label value set.
 func (v *CounterVec) WithLabelValues(values ...string) *Counter {
-	if v == nil {
-		return nil
-	}
 	if len(values) != len(v.labelKeys) {
 		panic("metrics: label value count mismatch")
 	}
@@ -69,13 +66,20 @@ func (v *CounterVec) WithLabelValues(values ...string) *Counter {
 	if metric != nil {
 		return metric
 	}
+	if err := validateLabelValues(values); err != nil {
+		panic(err)
+	}
+	return v.loadOrCreate(key, values)
+}
 
+// loadOrCreate serializes the first child creation and lets concurrent losers reuse its result.
+func (v *CounterVec) loadOrCreate(key string, values []string) *Counter {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if metric = v.metrics[key]; metric != nil {
+	if metric := v.metrics[key]; metric != nil {
 		return metric
 	}
-	metric = &Counter{
+	metric := &Counter{
 		desc:   v.desc,
 		labels: makeLabels(v.labelKeys, values),
 	}

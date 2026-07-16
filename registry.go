@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
-// Registry owns metric registration and snapshot collection.
+// Registry owns concurrent metric registration and snapshot collection.
+// Its zero value is ready to use, though NewRegistry is preferred for clarity.
 type Registry struct {
 	mu            sync.RWMutex
 	counters      map[string]*Counter
@@ -18,6 +20,7 @@ type Registry struct {
 	gaugeVecs     map[string]*GaugeVec
 	histograms    map[string]*Histogram
 	histogramVecs map[string]*HistogramVec
+	seriesOwners  map[string]string
 }
 
 // NewRegistry creates an empty metric registry.
@@ -29,6 +32,7 @@ func NewRegistry() *Registry {
 		gaugeVecs:     map[string]*GaugeVec{},
 		histograms:    map[string]*Histogram{},
 		histogramVecs: map[string]*HistogramVec{},
+		seriesOwners:  map[string]string{},
 	}
 }
 
@@ -49,8 +53,8 @@ func (r *Registry) Counter(desc Descriptor) (*Counter, error) {
 		}
 		return nil, conflictingMetricError(desc.Name)
 	}
-	if r.gauges[desc.Name] != nil || r.histograms[desc.Name] != nil || r.counterVecs[desc.Name] != nil || r.histogramVecs[desc.Name] != nil {
-		return nil, conflictingMetricError(desc.Name)
+	if err := r.reserveRegistration(desc); err != nil {
+		return nil, err
 	}
 
 	metric := &Counter{desc: desc}
@@ -84,8 +88,8 @@ func (r *Registry) Gauge(desc Descriptor) (*Gauge, error) {
 		}
 		return nil, conflictingMetricError(desc.Name)
 	}
-	if r.counters[desc.Name] != nil || r.histograms[desc.Name] != nil || r.counterVecs[desc.Name] != nil || r.gaugeVecs[desc.Name] != nil || r.histogramVecs[desc.Name] != nil {
-		return nil, conflictingMetricError(desc.Name)
+	if err := r.reserveRegistration(desc); err != nil {
+		return nil, err
 	}
 
 	metric := &Gauge{desc: desc}
@@ -122,24 +126,32 @@ func (r *Registry) Histogram(desc Descriptor, bounds []int64) (*Histogram, error
 		}
 		return nil, conflictingMetricError(desc.Name)
 	}
-	if r.counters[desc.Name] != nil || r.gauges[desc.Name] != nil || r.counterVecs[desc.Name] != nil || r.gaugeVecs[desc.Name] != nil || r.histogramVecs[desc.Name] != nil {
-		return nil, conflictingMetricError(desc.Name)
+	if err := r.reserveRegistration(desc); err != nil {
+		return nil, err
 	}
 
-	cloned := append([]int64(nil), bounds...)
-	metric := &Histogram{
-		desc:    desc,
-		bounds:  cloned,
-		buckets: make([]atomic.Uint64, len(cloned)+1),
-	}
+	metric := newHistogram(desc, nil, bounds)
 	r.histograms[desc.Name] = metric
 	return metric, nil
 }
 
 // DurationHistogram registers or returns an existing duration histogram.
 func (r *Registry) DurationHistogram(desc Descriptor, bounds []time.Duration) (*Histogram, error) {
-	desc.Unit = UnitSeconds
+	var err error
+	desc, err = durationDescriptor(desc)
+	if err != nil {
+		return nil, err
+	}
 	return r.Histogram(desc, durationBounds(bounds))
+}
+
+// MustDurationHistogram registers a duration histogram or panics.
+func (r *Registry) MustDurationHistogram(desc Descriptor, bounds []time.Duration) *Histogram {
+	metric, err := r.DurationHistogram(desc, bounds)
+	if err != nil {
+		panic(err)
+	}
+	return metric
 }
 
 // MustHistogram registers a histogram or panics.
@@ -151,7 +163,7 @@ func (r *Registry) MustHistogram(desc Descriptor, bounds []int64) *Histogram {
 	return metric
 }
 
-// Snapshot collects an immutable copy of the registry state.
+// Snapshot collects a detached, deterministically ordered copy of registry state.
 func (r *Registry) Snapshot() *Snapshot {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -199,36 +211,12 @@ func (r *Registry) Snapshot() *Snapshot {
 		family.mu.RUnlock()
 	}
 	for _, metric := range r.histograms {
-		bounds := append([]int64(nil), metric.bounds...)
-		buckets := make([]uint64, len(metric.buckets))
-		for i := range metric.buckets {
-			buckets[i] = metric.buckets[i].Load()
-		}
-		snap.Histograms = append(snap.Histograms, HistogramSnapshot{
-			Descriptor:   metric.desc,
-			Labels:       append([]Label(nil), metric.labels...),
-			Bounds:       bounds,
-			BucketCounts: buckets,
-			Count:        metric.Count(),
-			Sum:          metric.Sum(),
-		})
+		snap.Histograms = append(snap.Histograms, snapshotHistogram(metric))
 	}
 	for _, family := range r.histogramVecs {
 		family.mu.RLock()
 		for _, metric := range family.metrics {
-			bounds := append([]int64(nil), metric.bounds...)
-			buckets := make([]uint64, len(metric.buckets))
-			for i := range metric.buckets {
-				buckets[i] = metric.buckets[i].Load()
-			}
-			snap.Histograms = append(snap.Histograms, HistogramSnapshot{
-				Descriptor:   metric.desc,
-				Labels:       append([]Label(nil), metric.labels...),
-				Bounds:       bounds,
-				BucketCounts: buckets,
-				Count:        metric.Count(),
-				Sum:          metric.Sum(),
-			})
+			snap.Histograms = append(snap.Histograms, snapshotHistogram(metric))
 		}
 		family.mu.RUnlock()
 	}
@@ -255,9 +243,48 @@ func (r *Registry) Snapshot() *Snapshot {
 	return snap
 }
 
+// snapshotHistogram copies one coherent hot/cold histogram generation for exposition.
+func snapshotHistogram(metric *Histogram) HistogramSnapshot {
+	bounds := append([]int64(nil), metric.bounds...)
+	buckets, count, sum := metric.snapshotState()
+	return HistogramSnapshot{
+		Descriptor:   metric.desc,
+		Labels:       append([]Label(nil), metric.labels...),
+		Bounds:       bounds,
+		BucketCounts: buckets,
+		Count:        count,
+		Sum:          sum,
+	}
+}
+
+// durationDescriptor enforces seconds as the only valid exported unit for duration helpers.
+func durationDescriptor(desc Descriptor) (Descriptor, error) {
+	if desc.Unit != UnitNone && desc.Unit != UnitSeconds {
+		return Descriptor{}, fmt.Errorf("metrics: duration histogram %q cannot use unit %q", desc.Name, desc.Unit)
+	}
+	desc.Unit = UnitSeconds
+	return desc, nil
+}
+
+// canonicalizeDescriptor fills method-owned metadata and rejects descriptors that cannot be exported safely.
 func canonicalizeDescriptor(desc Descriptor, kind Kind) (Descriptor, error) {
-	if desc.Name == "" {
+	if strings.TrimSpace(desc.Name) == "" {
 		return Descriptor{}, errors.New("metrics: descriptor name is required")
+	}
+	if desc.Name != strings.TrimSpace(desc.Name) {
+		return Descriptor{}, fmt.Errorf("metrics: descriptor name %q has surrounding whitespace", desc.Name)
+	}
+	if !utf8.ValidString(desc.Name) {
+		return Descriptor{}, errors.New("metrics: descriptor name must be valid UTF-8")
+	}
+	if normalizePrometheusName(desc.Name) == "_" {
+		return Descriptor{}, fmt.Errorf("metrics: descriptor name %q has no letters or digits", desc.Name)
+	}
+	if strings.TrimSpace(desc.Help) == "" {
+		return Descriptor{}, fmt.Errorf("metrics: descriptor help is required for %q", desc.Name)
+	}
+	if !utf8.ValidString(desc.Help) {
+		return Descriptor{}, fmt.Errorf("metrics: descriptor help for %q must be valid UTF-8", desc.Name)
 	}
 	if desc.Kind == "" {
 		desc.Kind = kind
@@ -265,13 +292,20 @@ func canonicalizeDescriptor(desc Descriptor, kind Kind) (Descriptor, error) {
 	if desc.Kind != kind {
 		return Descriptor{}, fmt.Errorf("metrics: descriptor kind mismatch for %q", desc.Name)
 	}
+	switch desc.Unit {
+	case UnitNone, UnitSeconds, UnitBytes, UnitItems:
+	default:
+		return Descriptor{}, fmt.Errorf("metrics: unsupported unit %q for %q", desc.Unit, desc.Name)
+	}
 	return desc, nil
 }
 
+// sameDescriptor reports whether repeat registration is exactly idempotent.
 func sameDescriptor(a, b Descriptor) bool {
 	return a.Name == b.Name && a.Help == b.Help && a.Unit == b.Unit && a.Kind == b.Kind
 }
 
+// sameBounds reports whether repeat histogram registration uses the same buckets.
 func sameBounds(a, b []int64) bool {
 	if len(a) != len(b) {
 		return false
@@ -284,6 +318,61 @@ func sameBounds(a, b []int64) bool {
 	return true
 }
 
+// reserveRegistration rejects raw-name and normalized-series collisions before mutating registry state.
+func (r *Registry) reserveRegistration(desc Descriptor) error {
+	r.initialize()
+	if r.metricNameRegistered(desc.Name) {
+		return conflictingMetricError(desc.Name)
+	}
+
+	series := prometheusSeriesNames(desc)
+	for _, name := range series {
+		if owner, exists := r.seriesOwners[name]; exists {
+			return fmt.Errorf("metrics: Prometheus series %q for %q conflicts with metric %q", name, desc.Name, owner)
+		}
+	}
+	for _, name := range series {
+		r.seriesOwners[name] = desc.Name
+	}
+	return nil
+}
+
+// initialize makes the Registry zero value usable without weakening explicit constructor wiring.
+func (r *Registry) initialize() {
+	if r.counters == nil {
+		r.counters = map[string]*Counter{}
+	}
+	if r.counterVecs == nil {
+		r.counterVecs = map[string]*CounterVec{}
+	}
+	if r.gauges == nil {
+		r.gauges = map[string]*Gauge{}
+	}
+	if r.gaugeVecs == nil {
+		r.gaugeVecs = map[string]*GaugeVec{}
+	}
+	if r.histograms == nil {
+		r.histograms = map[string]*Histogram{}
+	}
+	if r.histogramVecs == nil {
+		r.histogramVecs = map[string]*HistogramVec{}
+	}
+	if r.seriesOwners == nil {
+		r.seriesOwners = map[string]string{}
+	}
+}
+
+// metricNameRegistered reports whether any scalar or vector already owns an internal name.
+func (r *Registry) metricNameRegistered(name string) bool {
+	return r.counters[name] != nil ||
+		r.counterVecs[name] != nil ||
+		r.gauges[name] != nil ||
+		r.gaugeVecs[name] != nil ||
+		r.histograms[name] != nil ||
+		r.histogramVecs[name] != nil
+}
+
+// conflictingMetricError describes a non-idempotent registration using an existing internal name.
 func conflictingMetricError(name string) error {
 	return fmt.Errorf("metrics: conflicting metric registration for %q", name)
 }

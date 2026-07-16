@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// TestCounterVecRegistrationAndEncoding verifies labeled counter families share metadata and retain distinct values.
 func TestCounterVecRegistrationAndEncoding(t *testing.T) {
 	reg := NewRegistry()
 	vec := reg.MustCounterVec(Descriptor{
@@ -36,6 +37,7 @@ func TestCounterVecRegistrationAndEncoding(t *testing.T) {
 	}
 }
 
+// TestHistogramVecRegistrationAndEncoding verifies duration buckets include fixed labels in exposition.
 func TestHistogramVecRegistrationAndEncoding(t *testing.T) {
 	reg := NewRegistry()
 	vec, err := reg.DurationHistogramVec(Descriptor{
@@ -70,6 +72,7 @@ func TestHistogramVecRegistrationAndEncoding(t *testing.T) {
 	}
 }
 
+// TestGaugeVecRegistrationAndEncoding verifies labeled gauges support signed arithmetic and stable ordering.
 func TestGaugeVecRegistrationAndEncoding(t *testing.T) {
 	reg := NewRegistry()
 	vec := reg.MustGaugeVec(Descriptor{
@@ -99,6 +102,7 @@ func TestGaugeVecRegistrationAndEncoding(t *testing.T) {
 	}
 }
 
+// TestVectorRegistrationRejectsConflicts verifies vector schemas participate in exact registration identity.
 func TestVectorRegistrationRejectsConflicts(t *testing.T) {
 	reg := NewRegistry()
 	if _, err := reg.CounterVec(Descriptor{

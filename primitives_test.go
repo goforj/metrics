@@ -2,6 +2,7 @@ package metrics
 
 import "testing"
 
+// TestCounterDescriptor verifies counters retain canonical registration metadata.
 func TestCounterDescriptor(t *testing.T) {
 	reg := NewRegistry()
 	desc := Descriptor{Name: "requests", Help: "Requests.", Kind: KindCounter}
@@ -11,6 +12,7 @@ func TestCounterDescriptor(t *testing.T) {
 	}
 }
 
+// TestGaugeDescriptorAndArithmetic verifies signed gauge updates and metadata access.
 func TestGaugeDescriptorAndArithmetic(t *testing.T) {
 	reg := NewRegistry()
 	desc := Descriptor{Name: "jobs.inflight", Help: "In-flight jobs.", Kind: KindGauge}
@@ -25,6 +27,7 @@ func TestGaugeDescriptorAndArithmetic(t *testing.T) {
 	}
 }
 
+// TestHistogramDescriptorAndBoundsCopy verifies histogram metadata cannot be mutated through accessors.
 func TestHistogramDescriptorAndBoundsCopy(t *testing.T) {
 	reg := NewRegistry()
 	desc := Descriptor{Name: "request.duration", Help: "Request duration.", Kind: KindHistogram}

@@ -4,14 +4,18 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Label is one Prometheus label key/value pair.
 type Label struct {
-	Key   string
+	// Key identifies the label dimension.
+	Key string
+	// Value identifies one value within the label dimension.
 	Value string
 }
 
+// validateLabelKeys returns trimmed, unique keys that are safe to expose.
 func validateLabelKeys(keys []string) ([]string, error) {
 	if len(keys) == 0 {
 		return nil, fmt.Errorf("metrics: at least one label key is required")
@@ -19,7 +23,9 @@ func validateLabelKeys(keys []string) ([]string, error) {
 	out := make([]string, len(keys))
 	seen := make(map[string]struct{}, len(keys))
 	for i, key := range keys {
-		key = strings.TrimSpace(key)
+		if key != strings.TrimSpace(key) {
+			return nil, fmt.Errorf("metrics: label key %q has surrounding whitespace", key)
+		}
 		if err := validateLabelKey(key); err != nil {
 			return nil, err
 		}
@@ -32,9 +38,33 @@ func validateLabelKeys(keys []string) ([]string, error) {
 	return out, nil
 }
 
+// validateHistogramLabelKeys prevents callers from shadowing the exporter-owned bucket label.
+func validateHistogramLabelKeys(keys []string) error {
+	for _, key := range keys {
+		if key == "le" {
+			return fmt.Errorf("metrics: histogram label key %q is reserved", key)
+		}
+	}
+	return nil
+}
+
+// validateLabelValues rejects bytes that cannot be represented by the UTF-8 exposition format.
+func validateLabelValues(values []string) error {
+	for _, value := range values {
+		if !utf8.ValidString(value) {
+			return fmt.Errorf("metrics: label value must be valid UTF-8")
+		}
+	}
+	return nil
+}
+
+// validateLabelKey enforces the Prometheus legacy label-name grammar.
 func validateLabelKey(key string) error {
 	if key == "" {
 		return fmt.Errorf("metrics: label key is required")
+	}
+	if strings.HasPrefix(key, "__") {
+		return fmt.Errorf("metrics: label key %q is reserved", key)
 	}
 	for i, r := range key {
 		if i == 0 {
@@ -50,6 +80,7 @@ func validateLabelKey(key string) error {
 	return nil
 }
 
+// sameLabelKeys reports whether two vector registrations describe the same ordered dimensions.
 func sameLabelKeys(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -62,6 +93,7 @@ func sameLabelKeys(a, b []string) bool {
 	return true
 }
 
+// makeLabels pairs a vector's fixed keys with one child metric's values.
 func makeLabels(keys, values []string) []Label {
 	labels := make([]Label, len(keys))
 	for i := range keys {
@@ -73,6 +105,7 @@ func makeLabels(keys, values []string) []Label {
 	return labels
 }
 
+// labelsKey builds an unambiguous map key without constraining label contents.
 func labelsKey(values []string) string {
 	var b strings.Builder
 	for _, value := range values {
@@ -84,6 +117,7 @@ func labelsKey(values []string) string {
 	return b.String()
 }
 
+// compareLabels provides deterministic snapshot ordering for labeled metric children.
 func compareLabels(a, b []Label) int {
 	limit := len(a)
 	if len(b) < limit {
