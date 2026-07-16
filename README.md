@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/goforj/metrics.svg)](https://pkg.go.dev/github.com/goforj/metrics)
 [![Go Test](https://github.com/goforj/metrics/actions/workflows/test.yml/badge.svg)](https://github.com/goforj/metrics/actions/workflows/test.yml)
-[![Go version](https://img.shields.io/badge/go-1.25%2B-blue?logo=go)](https://go.dev)
+[![Go version](https://img.shields.io/badge/go-1.24%2B-blue?logo=go)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Coverage](https://codecov.io/gh/goforj/metrics/graph/badge.svg)](https://codecov.io/gh/goforj/metrics)
 
@@ -12,7 +12,7 @@ The library is deliberately narrow: applications own their registry, registratio
 
 ## Installation
 
-Requires Go 1.25 or newer.
+Requires Go 1.24 or newer.
 
 ```sh
 go get github.com/goforj/metrics
