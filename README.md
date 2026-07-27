@@ -1,10 +1,19 @@
-# GoForj Metrics
+<p align="center">
+  <img src="./docs/assets/logo.png?v=1" width="300" alt="metrics logo">
+</p>
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/goforj/metrics.svg)](https://pkg.go.dev/github.com/goforj/metrics)
-[![Go Test](https://github.com/goforj/metrics/actions/workflows/test.yml/badge.svg)](https://github.com/goforj/metrics/actions/workflows/test.yml)
-[![Go version](https://img.shields.io/badge/go-1.24%2B-blue?logo=go)](https://go.dev)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Coverage](https://codecov.io/gh/goforj/metrics/graph/badge.svg)](https://codecov.io/gh/goforj/metrics)
+<p align="center">
+  Dependency-free metrics primitives and Prometheus exposition for Go.
+</p>
+
+<p align="center">
+  <a href="https://pkg.go.dev/github.com/goforj/metrics"><img src="https://pkg.go.dev/badge/github.com/goforj/metrics.svg" alt="Go Reference"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://github.com/goforj/metrics/actions"><img src="https://github.com/goforj/metrics/actions/workflows/test.yml/badge.svg" alt="Go Test"></a>
+  <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.24%2B-blue?logo=go" alt="Go 1.24 or newer"></a>
+  <img src="https://img.shields.io/github/v/tag/goforj/metrics?label=version&sort=semver" alt="Latest tag">
+  <a href="https://codecov.io/gh/goforj/metrics"><img src="https://codecov.io/gh/goforj/metrics/graph/badge.svg" alt="Coverage"></a>
+</p>
 
 `github.com/goforj/metrics` is a small, dependency-free metrics library for GoForj and other Go applications. It provides explicit registries, counters, gauges, fixed-bucket histograms, detached snapshots, and Prometheus text exposition.
 
