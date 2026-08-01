@@ -41,8 +41,10 @@ import (
 )
 
 func main() {
+	// Own the registry explicitly so tests and multiple applications do not share metric state.
 	registry := metrics.NewRegistry()
 
+	// Register metrics once during startup, then retain these handles for inexpensive updates.
 	requests := registry.MustCounter(metrics.Descriptor{
 		Name: "http.requests",
 		Help: "Total HTTP requests served.",
@@ -55,6 +57,7 @@ func main() {
 	http.Handle("/metrics", metrics.Handler(registry))
 	http.HandleFunc("/hello", func(response http.ResponseWriter, _ *http.Request) {
 		start := time.Now()
+		// A deferred observation records latency on every return path through the handler.
 		defer latency.ObserveSince(start)
 
 		requests.Inc()
@@ -66,6 +69,15 @@ func main() {
 ```
 
 This exports `http_requests_total` and the `http_request_duration_seconds` histogram family at `/metrics`.
+
+After starting the program, make one request and inspect the counter:
+
+```console
+$ curl --silent http://localhost:8080/hello > /dev/null
+
+$ curl --silent http://localhost:8080/metrics | grep '^http_requests_total'
+http_requests_total 1
+```
 
 ## Model
 
@@ -188,10 +200,14 @@ Registration, updates, snapshots, and exposition are safe to use concurrently. K
 - updates on the returned counter, gauge, or histogram child do not take the registry or vector lock;
 - snapshots are detached and may be retained or modified without changing live metrics.
 
-Run the race-enabled test suite with:
+## Development
 
-```sh
-GOCACHE=/tmp/gocache GOMODCACHE=/tmp/gomodcache go test -race ./...
+Run the normal validation targets with:
+
+```bash
+make test
+make test-race
+make vet
 ```
 
 ## Upgrading
