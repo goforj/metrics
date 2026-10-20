@@ -213,3 +213,7 @@ make vet
 ## Upgrading
 
 The quality-pass contract is stricter than v0.1.0. See [MIGRATING.md](MIGRATING.md) for the validation, nil-handling, duration, and histogram-sum changes.
+
+## Documentation
+
+Read the [metrics library documentation](https://goforj.dev/metrics) for standalone installation, usage, and API reference.
